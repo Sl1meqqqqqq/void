@@ -175,13 +175,30 @@ def run_http_server():
 def process_message(msg):
     chat_id = msg["chat"]["id"]
     text = msg.get("text", "").strip()
+    if not text:
+        return
 
     # Automatically register admin on first use
     if chat_id not in config.get("admin_ids", []):
         config.setdefault("admin_ids", []).append(chat_id)
         save_config(config)
 
-    if text.startswith("/start") or text == "/help":
+    # Parse command cleanly
+    parts = text.split()
+    cmd = parts[0].lower() if parts else ""
+
+    # Check if user was in pending state for /key
+    if chat_id in pending_users:
+        # If user typed another command instead, cancel pending state
+        if text.startswith("/"):
+            del pending_users[chat_id]
+        else:
+            target_username = text
+            del pending_users[chat_id]
+            create_and_send_key(chat_id, target_username)
+            return
+
+    if cmd == "/start" or cmd == "/help":
         send_tg_message(chat_id, (
             "⚡ <b>VOID // СИСТЕМА УПРАВЛЕНИЯ ЛИЦЕНЗИЯМИ</b> ⚡\n\n"
             "Доступные команды:\n"
@@ -193,24 +210,7 @@ def process_message(msg):
         ))
         return
 
-    # Check if waiting for username after plain /key
-    if chat_id in pending_users:
-        target_username = text
-        del pending_users[chat_id]
-        create_and_send_key(chat_id, target_username)
-        return
-
-    if text.startswith("/key"):
-        parts = text.split(maxsplit=1)
-        if len(parts) > 1:
-            target_username = parts[1].strip()
-            create_and_send_key(chat_id, target_username)
-        else:
-            pending_users[chat_id] = True
-            send_tg_message(chat_id, "✍️ <b>Введите никнейм пользователя</b>, для которого создаётся ключ:")
-        return
-
-    if text == "/keys":
+    if cmd == "/keys":
         db = load_db()
         if not db:
             send_tg_message(chat_id, "📭 База ключей пока пуста. Создайте ключ через <code>/key [ник]</code>.")
@@ -232,12 +232,12 @@ def process_message(msg):
         send_tg_message(chat_id, "\n".join(lines))
         return
 
-    if text.startswith("/keycheck"):
-        parts = text.split(maxsplit=1)
-        if len(parts) < 2:
+    if cmd == "/keycheck":
+        sub_parts = text.split(maxsplit=1)
+        if len(sub_parts) < 2:
             send_tg_message(chat_id, "⚠️ Использование: <code>/keycheck [ник или ключ]</code>")
             return
-        query = parts[1].strip()
+        query = sub_parts[1].strip()
         db = load_db()
 
         # Search by key or username
@@ -268,12 +268,22 @@ def process_message(msg):
         ))
         return
 
-    if text.startswith("/ban"):
-        parts = text.split(maxsplit=1)
-        if len(parts) < 2:
+    if cmd == "/key":
+        sub_parts = text.split(maxsplit=1)
+        if len(sub_parts) > 1:
+            target_username = sub_parts[1].strip()
+            create_and_send_key(chat_id, target_username)
+        else:
+            pending_users[chat_id] = True
+            send_tg_message(chat_id, "✍️ <b>Введите никнейм пользователя</b>, для которого создаётся ключ:")
+        return
+
+    if cmd == "/ban":
+        sub_parts = text.split(maxsplit=1)
+        if len(sub_parts) < 2:
             send_tg_message(chat_id, "⚠️ Использование: <code>/ban [ник или ключ]</code>")
             return
-        query = parts[1].strip()
+        query = sub_parts[1].strip()
         db = load_db()
         target_k = None
         for k, v in db.items():
@@ -289,12 +299,12 @@ def process_message(msg):
             send_tg_message(chat_id, f"❌ Ключ или пользователь <b>'{query}'</b> не найден!")
         return
 
-    if text.startswith("/unban"):
-        parts = text.split(maxsplit=1)
-        if len(parts) < 2:
+    if cmd == "/unban":
+        sub_parts = text.split(maxsplit=1)
+        if len(sub_parts) < 2:
             send_tg_message(chat_id, "⚠️ Использование: <code>/unban [ник или ключ]</code>")
             return
-        query = parts[1].strip()
+        query = sub_parts[1].strip()
         db = load_db()
         target_k = None
         for k, v in db.items():
